@@ -1,0 +1,411 @@
+<title>TAT Analysis Live</title>
+<style>
+/* Layout: navy header band with date control, KPI strip, then the two SOP tables stacked, raw leads folded at the bottom. */
+:root {
+  --navy: #204768; --navy-deep: #16324e; --gold: #EFCC25; --gold-ink: #8a6a0c;
+  --ink: #1c3654; --muted: #5f6f85; --faint: #9aa7ba;
+  --bg: #f4f7fb; --card: #ffffff; --line: #e1e8f1; --zebra: #f8fafd;
+  --good: #1f8a70; --good-bg: #dff3ec; --warn: #b07a08; --warn-bg: #fdf3d3;
+  --bad: #D82A30; --bad-bg: #fbe3e4; --pending-bg: #eef1f6;
+  --heat: 32, 97, 140;
+  --font: "Segoe UI", system-ui, Arial, sans-serif;
+  --mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --navy: #1b3a57; --navy-deep: #0f2236; --gold: #EFCC25; --gold-ink: #EFCC25;
+  --ink: #e3ebf5; --muted: #9fb0c6; --faint: #6f8199;
+  --bg: #0d1724; --card: #132235; --line: #24384f; --zebra: #162a40;
+  --good: #4fc9a4; --good-bg: #123a33; --warn: #f0c24a; --warn-bg: #3a3014;
+  --bad: #ff6b70; --bad-bg: #3d1b1f; --pending-bg: #1b2c42;
+  --heat: 120, 170, 220; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --navy: #1b3a57; --navy-deep: #0f2236; --gold: #EFCC25; --gold-ink: #EFCC25;
+  --ink: #e3ebf5; --muted: #9fb0c6; --faint: #6f8199;
+  --bg: #0d1724; --card: #132235; --line: #24384f; --zebra: #162a40;
+  --good: #4fc9a4; --good-bg: #123a33; --warn: #f0c24a; --warn-bg: #3a3014;
+  --bad: #ff6b70; --bad-bg: #3d1b1f; --pending-bg: #1b2c42;
+  --heat: 120, 170, 220; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); }
+.wrap { max-width: 1200px; margin: 0 auto; padding-inline: 16px; padding-block: 0 48px; }
+header.band { background: linear-gradient(135deg, var(--navy-deep), var(--navy)); color: #fff; padding-inline: 16px; padding-block: 22px 20px; border-bottom: 3px solid var(--gold); }
+header.band .inner { max-width: 1200px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: flex-end; justify-content: space-between; }
+.eyebrow { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+h1 { margin: 2px 0 4px; font-size: 26px; font-weight: 600; text-wrap: balance; }
+.sub { color: #c9d6e6; font-size: 13px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.controls label { font-size: 12px; color: #c9d6e6; display: flex; flex-direction: column; gap: 4px; }
+input[type=date] { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid #4a6a8c; background: #fff; color: #1c3654; color-scheme: light; }
+button { font: inherit; font-weight: 600; cursor: pointer; border-radius: 6px; padding: 7px 14px; border: 1px solid transparent; }
+button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.btn-gold { background: var(--gold); color: #1c3654; }
+.btn-ghost { background: transparent; color: #fff; border-color: #6c8bab; }
+.btn-ghost:hover { background: rgba(255,255,255,.08); }
+.status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #c9d6e6; flex-basis: 100%; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.dot.live { background: #4fe0b0; box-shadow: 0 0 0 0 rgba(79,224,176,.6); animation: pulse 2s infinite; }
+@keyframes pulse { 70% { box-shadow: 0 0 0 8px rgba(79,224,176,0) } 100% { box-shadow: 0 0 0 0 rgba(79,224,176,0) } }
+@media (prefers-reduced-motion: reduce) { .dot.live { animation: none } }
+
+.notice { margin-top: 20px; padding: 12px 16px; border-radius: 8px; background: var(--warn-bg); color: var(--ink); border: 1px solid var(--line); }
+.notice.bad { background: var(--bad-bg); }
+.notice strong { display: block; margin-bottom: 2px; }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 20px; }
+.kpi { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kpi .lbl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.kpi .val { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.2; }
+.kpi .val small { font-size: 14px; font-weight: 500; color: var(--muted); }
+.kpi .note { font-size: 12px; color: var(--muted); }
+.kpi.hero { border-top: 3px solid var(--gold); }
+
+section.tbl { margin-top: 28px; }
+.tbl-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 16px; margin-bottom: 8px; }
+.tbl-head h2 { margin: 0; font-size: 17px; font-weight: 600; text-wrap: balance; }
+.tbl-head .win { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.scroll { overflow-x: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 9px; text-align: center; border-bottom: 1px solid var(--line); white-space: nowrap; }
+thead th { font-size: 11.5px; color: var(--muted); font-weight: 600; background: var(--zebra); }
+thead tr.group th { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--gold-ink); border-bottom: 2px solid var(--gold); }
+th.owner, td.owner { text-align: left; position: sticky; left: 0; background: var(--card); z-index: 1; min-width: 150px; font-weight: 600; }
+thead th.owner { background: var(--zebra); }
+td.zero { color: var(--faint); }
+td.heat { color: var(--ink); font-weight: 600; }
+td.sop { background: var(--good-bg); }
+td.sop.has { color: var(--good); font-weight: 700; }
+th.sop { color: var(--good); }
+td.pending.has { background: var(--pending-bg); font-weight: 700; color: var(--bad); }
+td.total, th.total { font-weight: 700; border-left: 1px solid var(--line); }
+tfoot td { background: var(--navy); color: #fff; font-weight: 700; border-bottom: 0; }
+tfoot td.owner { background: var(--navy); }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; font-weight: 700; }
+.pill.good { background: var(--good-bg); color: var(--good); }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+.pill.bad { background: var(--bad-bg); color: var(--bad); }
+.foot { font-size: 12px; font-style: italic; color: var(--muted); margin: 8px 2px 0; max-width: 90ch; }
+.empty { padding: 28px 16px; text-align: center; color: var(--muted); }
+
+details.raw { margin-top: 28px; }
+details.raw summary { cursor: pointer; font-weight: 600; font-size: 15px; padding: 6px 0; }
+details.raw td { font-size: 12.5px; }
+details.raw td.l { text-align: left; }
+details.raw td.mono { font-family: var(--mono); font-size: 12px; }
+.copyrow { margin-top: 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.btn-line { background: var(--card); color: var(--ink); border-color: var(--line); }
+.btn-line:hover { border-color: var(--gold); }
+#copyNote { font-size: 12px; color: var(--muted); }
+textarea#copyFallback { width: 100%; min-height: 140px; font: 12px var(--mono); margin-top: 8px; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+</style>
+
+<header class="band">
+  <div class="inner">
+    <div style="min-width:0">
+      <div class="eyebrow">Alcove Realty · Presales · New Kolkata</div>
+      <h1>TAT Analysis Live</h1>
+      <div class="sub">First connect on fresh Inbound &amp; Outbound enquiries. SOP: call within 5 minutes during office hours (10:00 AM – 6:30 PM IST).</div>
+    </div>
+    <div class="controls">
+      <label for="reportDate">Report date
+        <input type="date" id="reportDate">
+      </label>
+      <button class="btn-ghost" id="todayBtn" type="button">Today</button>
+      <button class="btn-gold" id="refreshBtn" type="button">Refresh</button>
+    </div>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">Connecting to Salesforce…</span></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="notice" hidden></div>
+
+  <div class="kpis" id="kpis">
+    <div class="kpi hero"><span class="lbl">Office hours · within 5 min</span><span class="val" id="kSop">–</span><span class="note" id="kSopN">Waiting for data</span></div>
+    <div class="kpi"><span class="lbl">Fresh enquiries in window</span><span class="val" id="kTotal">–</span><span class="note" id="kTotalN">&nbsp;</span></div>
+    <div class="kpi"><span class="lbl">Median office-hours TAT</span><span class="val" id="kMed">–</span><span class="note" id="kMedN">&nbsp;</span></div>
+    <div class="kpi"><span class="lbl">Outside hours · called by 11 AM</span><span class="val" id="kEarly">–</span><span class="note" id="kEarlyN">&nbsp;</span></div>
+    <div class="kpi"><span class="lbl">Not called yet</span><span class="val" id="kPend">–</span><span class="note" id="kPendN">&nbsp;</span></div>
+  </div>
+
+  <section class="tbl">
+    <div class="tbl-head"><h2 id="offTitle">Office Hours (10:00 AM – 6:30 PM)</h2><span class="win" id="offWin"></span></div>
+    <div class="scroll" id="offTable"><div class="empty">The office-hours table appears here once Salesforce answers.</div></div>
+    <p class="foot" id="offFoot"></p>
+  </section>
+
+  <section class="tbl">
+    <div class="tbl-head"><h2 id="outTitle">Outside Office Hours (6:30 PM – 10:00 AM)</h2><span class="win" id="outWin"></span></div>
+    <div class="scroll" id="outTable"><div class="empty">The outside-hours table appears here once Salesforce answers.</div></div>
+    <p class="foot" id="outFoot"></p>
+  </section>
+
+  <div class="copyrow">
+    <button class="btn-line" id="copyBtn" type="button">Copy summary for WhatsApp</button>
+    <span id="copyNote"></span>
+  </div>
+  <textarea id="copyFallback" hidden readonly aria-label="Summary text"></textarea>
+
+  <details class="raw" id="rawBox">
+    <summary id="rawSummary">Lead-level data</summary>
+    <div class="scroll" id="rawTable"></div>
+  </details>
+</main>
+
+<script>
+(() => {
+  const SERVER = "Salesforce";
+  const TOOL = "soqlQuery";
+  const IST = 330 * 60000;
+  const $ = id => document.getElementById(id);
+
+  let mcp = null, unwatch = null, lastRecords = null, lastStoredAt = null, current = null;
+
+  // ---------- date helpers (IST is fixed UTC+5:30) ----------
+  const pad = n => String(n).padStart(2, "0");
+  function todayIST() { const d = new Date(Date.now() + IST); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth()+1)}-${pad(d.getUTCDate())}`; }
+  function dayStartUTC(ymd) { const [y,m,d] = ymd.split("-").map(Number); return Date.UTC(y, m-1, d) - IST; } // ms at 00:00 IST
+  function toIso(ms) { return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z"); }
+  function parseSf(s) { return s ? Date.parse(String(s).replace(/([+-]\d\d)(\d\d)$/, "$1:$2")) : null; }
+  function fmtIST(ms, withDate = true) {
+    if (ms == null) return "—";
+    const d = new Date(ms + IST); let h = d.getUTCHours(); const ap = h < 12 ? "AM" : "PM"; h = h % 12 || 12;
+    const t = `${h}:${pad(d.getUTCMinutes())} ${ap}`;
+    return withDate ? `${pad(d.getUTCDate())}/${pad(d.getUTCMonth()+1)} ${t}` : t;
+  }
+  function longDate(ymd) { const [y,m,d] = ymd.split("-").map(Number); return new Date(Date.UTC(y,m-1,d)).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }); }
+
+  function windowFor(ymd) {
+    const d0 = dayStartUTC(ymd);
+    return { ymd, d0, start: d0 - 330*60000 /* D-1 18:30 */, open: d0 + 600*60000 /* D 10:00 */, close: d0 + 1110*60000 /* D 18:30 */ };
+  }
+  function soql(w) {
+    return `SELECT Id, Owner.Name, Enquiry_Date__c, First_Call_Date_Time__c, Enquiry_Type__c FROM Lead ` +
+      `WHERE Enquiry_Date__c >= ${toIso(w.start)} AND Enquiry_Date__c <= ${toIso(w.close)} ` +
+      `AND Enquiry_Type__c IN ('Inbound','Outbound') ORDER BY Enquiry_Date__c LIMIT 2000`;
+  }
+
+  // ---------- classification ----------
+  function classify(records, w) {
+    return records.map(r => {
+      const created = parseSf(r.Enquiry_Date__c), fc = parseSf(r.First_Call_Date_Time__c);
+      const win = created < w.open ? "out" : "off";
+      const tat = fc == null ? null : Math.max(0, Math.round((fc - created) / 60000));
+      return { id: r.Id, owner: (r.Owner && r.Owner.Name) || "Unassigned", type: r.Enquiry_Type__c, created, fc, win, tat };
+    });
+  }
+
+  function officeBands(rows) {
+    const called = rows.filter(r => r.tat != null).map(r => r.tat);
+    let cap = 70;
+    while (cap < 90 && called.some(m => m > cap && m <= cap + 5)) cap += 5;
+    const bands = [];
+    for (let lo = 0; lo < cap; lo += 5) {
+      const a = lo === 0 ? 0 : lo + 1, b = lo + 5;
+      bands.push({ key: "b" + lo, label: `${a}-${b}`, test: m => m >= a && m <= b, sop: lo === 0 });
+    }
+    bands.push({ key: "over", label: `>${cap}`, test: m => m > cap });
+    return bands;
+  }
+  function outsideBands(rows, w) {
+    const minsOf = r => (r.fc - w.d0) / 60000;
+    const called = rows.filter(r => r.fc != null).map(minsOf);
+    const bands = [];
+    if (called.some(m => m < 540)) bands.push({ key: "pre", label: "Before 9", test: m => m < 540 });
+    for (let h = 9; h < 18; h++) bands.push({ key: "h" + h, label: `${h}-${h+1}`, test: m => m >= h*60 && m < (h+1)*60 });
+    bands.push({ key: "h18", label: "18-18:30", test: m => m >= 1080 && m <= 1110 });
+    if (called.some(m => m > 1110 && m < 1440)) bands.push({ key: "late", label: "After 18:30", test: m => m > 1110 && m < 1440 });
+    if (called.some(m => m >= 1440)) bands.push({ key: "next", label: "Next day+", test: m => m >= 1440 });
+    return { bands, minsOf };
+  }
+
+  // ---------- rendering ----------
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  function rateClass(p) { return p >= 0.8 ? "good" : p >= 0.5 ? "warn" : "bad"; }
+  function pct(n, d) { return d ? Math.round(100 * n / d) + "%" : "–"; }
+
+  function buildTable(rows, bands, valueOf, groupLabel, withSop) {
+    if (!rows.length) return `<div class="empty">No fresh enquiries in this window.</div>`;
+    const owners = [...new Set(rows.map(r => r.owner))];
+    const by = Object.fromEntries(owners.map(o => [o, rows.filter(r => r.owner === o)]));
+    owners.sort((a, b) => by[b].length - by[a].length || a.localeCompare(b));
+    const max = Math.max(1, ...owners.flatMap(o => bands.map(b => by[o].filter(r => valueOf(r) != null && b.test(valueOf(r))).length)));
+    const colTot = bands.map(() => 0); let pendTot = 0, grand = 0, sopTot = 0;
+
+    let body = "";
+    for (const o of owners) {
+      const rs = by[o]; let tr = `<tr><td class="owner">${esc(o)}</td>`;
+      bands.forEach((b, i) => {
+        const n = rs.filter(r => valueOf(r) != null && b.test(valueOf(r))).length; colTot[i] += n;
+        if (b.sop) sopTot += n;
+        const heat = n && !b.sop ? ` style="background: rgba(var(--heat), ${(0.08 + 0.32 * n / max).toFixed(2)})"` : "";
+        tr += `<td class="${b.sop ? "sop " : ""}${n ? (b.sop ? "has" : "heat") : "zero"}"${heat}>${n}</td>`;
+      });
+      const pend = rs.filter(r => r.fc == null).length; pendTot += pend; grand += rs.length;
+      tr += `<td class="pending${pend ? " has" : " zero"}">${pend}</td><td class="total">${rs.length}</td>`;
+      if (withSop) { const s = rs.filter(r => r.tat != null && r.tat <= 5).length / rs.length; tr += `<td><span class="pill ${rateClass(s)}">${Math.round(s*100)}%</span></td>`; }
+      body += tr + "</tr>";
+    }
+    const span = bands.length;
+    const head = `<thead><tr class="group"><th class="owner" rowspan="2">Lead Owner</th><th colspan="${span}">${esc(groupLabel)}</th><th rowspan="2">Not called</th><th class="total" rowspan="2">Total</th>${withSop ? `<th rowspan="2">Within SOP</th>` : ""}</tr>` +
+      `<tr>${bands.map(b => `<th${b.sop ? ' class="sop"' : ""}>${b.label}</th>`).join("")}</tr></thead>`;
+    const foot = `<tfoot><tr><td class="owner">Total</td>${colTot.map(n => `<td>${n}</td>`).join("")}<td>${pendTot}</td><td class="total">${grand}</td>${withSop ? `<td>${pct(sopTot, grand)}</td>` : ""}</tr></tfoot>`;
+    return `<table>${head}<tbody>${body}</tbody>${foot}</table>`;
+  }
+
+  function median(a) { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : Math.round((s[m-1] + s[m]) / 2); }
+
+  function render(records) {
+    const w = current;
+    const rows = classify(records, w);
+    const off = rows.filter(r => r.win === "off"), out = rows.filter(r => r.win === "out");
+    const dateTxt = longDate(w.ymd);
+
+    // KPIs
+    const offSop = off.filter(r => r.tat != null && r.tat <= 5).length;
+    $("kSop").innerHTML = off.length ? `${pct(offSop, off.length)}` : "–";
+    $("kSopN").textContent = off.length ? `${offSop} of ${off.length} office-hours leads` : "No office-hours leads yet";
+    $("kTotal").textContent = rows.length;
+    $("kTotalN").textContent = `${off.length} office hours · ${out.length} outside`;
+    const med = median(off.filter(r => r.tat != null).map(r => r.tat));
+    $("kMed").innerHTML = med == null ? "–" : `${med} <small>min</small>`;
+    $("kMedN").textContent = med == null ? "No calls yet" : (med <= 5 ? "Inside the 5-minute SOP" : `${med - 5} min over the SOP`);
+    const outCalled = out.filter(r => r.fc != null);
+    const early = outCalled.filter(r => r.fc < w.d0 + 660*60000).length;
+    $("kEarly").textContent = out.length ? pct(early, out.length) : "–";
+    $("kEarlyN").textContent = out.length ? `${early} of ${out.length} overnight leads` : "No overnight leads";
+    const pend = rows.filter(r => r.fc == null).length;
+    $("kPend").textContent = pend;
+    $("kPend").style.color = pend ? "var(--bad)" : "";
+    $("kPendN").textContent = pend ? "Leads in this window with no first call" : "Every lead has been called";
+
+    // Office table
+    const ob = officeBands(off);
+    $("offTitle").textContent = `Summary of TAT Analysis Report of ${dateTxt} · Office Hours (10:00 AM – 6:30 PM)`;
+    $("offWin").textContent = `${fmtIST(w.open)} → ${fmtIST(w.close)}`;
+    $("offTable").innerHTML = buildTable(off, ob, r => r.tat, "Minutes to first call", true);
+    const longest = off.filter(r => r.tat != null).sort((a, b) => b.tat - a.tat)[0];
+    let offFoot = "SOP: first connect within 5 minutes of the enquiry (green column). Each band counts leads by minutes from Created Date (Considered for Report) to First Call Date Time.";
+    if (longest && longest.tat > 70) {
+      const lateDay = longest.created >= w.d0 + 1095*60000;
+      offFoot += ` Longest gap: ${longest.tat} min (${esc(longest.owner)}, created ${fmtIST(longest.created, false)}, first call ${fmtIST(longest.fc)})${lateDay ? " — created in the last 15 minutes of the day, so the call likely rolled to the next morning." : "."}`;
+    }
+    $("offFoot").textContent = offFoot;
+
+    // Outside table
+    const { bands: xb, minsOf } = outsideBands(out, w);
+    $("outTitle").textContent = `Summary of TAT Analysis Report of ${dateTxt} · Outside Office Hours (6:30 PM – 10:00 AM)`;
+    $("outWin").textContent = `${fmtIST(w.start)} → ${fmtIST(w.open)}`;
+    $("outTable").innerHTML = buildTable(out, xb, r => r.fc == null ? null : minsOf(r), "Clock hour of first call (IST)", false);
+    $("outFoot").textContent = "Leads that arrive after 6:30 PM or before 10:00 AM can only be called once the team is in, so they are counted by the hour the first call happened on the report date. Earlier columns are better.";
+
+    // Raw
+    $("rawSummary").textContent = `Lead-level data (${rows.length} leads)`;
+    $("rawTable").innerHTML = rows.length ? `<table><thead><tr><th class="owner">Lead Owner</th><th>Created (IST)</th><th>First call (IST)</th><th>TAT (min)</th><th>Window</th><th>Enquiry Type</th><th>Lead Id</th></tr></thead><tbody>` +
+      rows.map(r => `<tr><td class="owner">${esc(r.owner)}</td><td>${fmtIST(r.created)}</td><td>${r.fc ? fmtIST(r.fc) : '<span class="pill bad">Not called</span>'}</td>` +
+        `<td>${r.tat == null ? "—" : (r.win === "off" && r.tat <= 5 ? `<span class="pill good">${r.tat}</span>` : r.tat)}</td>` +
+        `<td class="l">${r.win === "off" ? "Office Hours" : "Outside Office Hours"}</td><td>${esc(r.type || "")}</td><td class="mono">${esc(r.id)}</td></tr>`).join("") +
+      `</tbody></table>` : `<div class="empty">No leads.</div>`;
+
+    // Summary text for WhatsApp
+    const ownersOff = [...new Set(off.map(r => r.owner))].map(o => { const rs = off.filter(r => r.owner === o); const s = rs.filter(r => r.tat != null && r.tat <= 5).length; return `• ${o}: ${s}/${rs.length} within 5 min`; });
+    summaryText = `*TAT Analysis – ${dateTxt}*\nFresh enquiries: ${rows.length} (Office ${off.length} · Outside ${out.length})\n` +
+      `Office hours within 5 min: ${pct(offSop, off.length)} (${offSop}/${off.length})\n${ownersOff.join("\n")}\n` +
+      `Median office TAT: ${med == null ? "–" : med + " min"}\nOutside hours called by 11 AM: ${pct(early, out.length)}\nNot called yet: ${pend}`;
+  }
+  let summaryText = "";
+
+  function clearData() {
+    lastRecords = null;
+    ["kSop","kTotal","kMed","kEarly","kPend"].forEach(id => $(id).textContent = "–");
+    ["kSopN","kTotalN","kMedN","kEarlyN","kPendN"].forEach(id => $(id).innerHTML = "&nbsp;");
+    $("offTable").innerHTML = `<div class="empty">No data to show.</div>`;
+    $("outTable").innerHTML = `<div class="empty">No data to show.</div>`;
+    $("rawTable").innerHTML = ""; $("offFoot").textContent = ""; $("outFoot").textContent = "";
+    summaryText = "";
+  }
+
+  function notice(kind, title, text) {
+    const n = $("notice");
+    if (!title) { n.hidden = true; return; }
+    n.className = "notice" + (kind === "bad" ? " bad" : "");
+    n.innerHTML = `<strong>${esc(title)}</strong>${esc(text || "")}`;
+    n.hidden = false;
+  }
+
+  function isLive() { return current && current.ymd === todayIST() && Date.now() < current.close; }
+  function setStatus() {
+    const live = isLive();
+    $("dot").className = "dot" + (live && lastRecords ? " live" : "");
+    if (!lastRecords) return;
+    const at = lastStoredAt ? fmtIST(lastStoredAt, false) : fmtIST(Date.now(), false);
+    $("statusText").textContent = live
+      ? `Live · window still open until 6:30 PM · refreshes every minute · last updated ${at} IST`
+      : `Window closed · final numbers for ${longDate(current.ymd)} · fetched ${at} IST`;
+  }
+
+  function handleError(err) {
+    const code = err && err.code;
+    const authz = ["needs_reauth", "server_not_connected", "selection_required", "blocked_by_policy", "approval_required", "not_in_manifest", "not_granted", "capability_disabled", "capability_removed", "server_not_found"];
+    if (authz.includes(code)) clearData();
+    switch (code) {
+      case "needs_reauth": notice("bad", "Your Salesforce connection has expired.", " Reconnect Salesforce in claude.ai Settings → Connectors, then press Refresh."); break;
+      case "server_not_connected": case "server_not_found": notice("bad", "Salesforce isn't connected for your account.", " Add Salesforce in claude.ai Settings → Connectors, then reload this page."); break;
+      case "selection_required": notice("bad", "You have more than one Salesforce connector.", " Choose which one this page should use when claude.ai asks, then press Refresh."); break;
+      case "not_in_manifest": notice("bad", "Salesforce access is turned off for this page.", " Allow Salesforce from this page's Permissions menu, then press Refresh."); break;
+      case "blocked_by_policy": case "approval_required": notice("bad", "Your organization's policy blocks this Salesforce query for you.", " Ask your Claude admin to allow the Salesforce query tool."); break;
+      case "not_granted": case "capability_disabled": case "capability_removed": notice("bad", "Live data isn't available in this view.", " Open the page on claude.ai while signed in to see live numbers."); break;
+      case "tool_error": notice("bad", "Salesforce rejected the query.", " " + (err.message || "")); break;
+      case "server_unavailable": case "rate_limited": notice("", "Salesforce didn't answer just now.", lastRecords ? " Showing the last numbers received; the page will try again on the next refresh." : " Press Refresh in a moment."); break;
+      default: notice("", "Couldn't load from Salesforce.", " " + ((err && err.message) || "Press Refresh to try again."));
+    }
+    $("statusText").textContent = lastRecords ? "Showing last numbers received" : "Not connected";
+    $("dot").className = "dot";
+  }
+
+  function onEvent(ev) {
+    if (ev.type === "error") return handleError(ev.error);
+    const p = ev.result && ev.result.payload;
+    const recs = p && Array.isArray(p.records) ? p.records : null;
+    if (!recs) return handleError({ code: "tool_error", message: "Unexpected response from Salesforce." });
+    notice(null);
+    lastRecords = recs;
+    lastStoredAt = ev.result.cache ? ev.result.cache.storedAt : Date.now();
+    render(recs);
+    setStatus();
+  }
+
+  function load(force) {
+    const ymd = $("reportDate").value || todayIST();
+    current = windowFor(ymd);
+    if (!mcp) return;
+    if (unwatch) { unwatch(); unwatch = null; }
+    const input = { q: soql(current) };
+    $("statusText").textContent = "Loading from Salesforce…";
+    const go = () => {
+      unwatch = mcp.watchTool(SERVER, TOOL, input, onEvent, isLive() ? { refetchInterval: 60000, cache: { staleTime: 30000 } } : { cache: { staleTime: 300000 } });
+    };
+    if (force) mcp.invalidate(SERVER, TOOL, input).catch(() => {}).then(go); else go();
+  }
+
+  // ---------- wiring ----------
+  const t = todayIST();
+  $("reportDate").value = t; $("reportDate").max = t;
+  $("reportDate").addEventListener("change", () => load(false));
+  $("todayBtn").addEventListener("click", () => { $("reportDate").value = todayIST(); load(false); });
+  $("refreshBtn").addEventListener("click", () => load(true));
+  $("copyBtn").addEventListener("click", () => {
+    if (!summaryText) { $("copyNote").textContent = "Nothing to copy yet."; return; }
+    const fb = () => { const ta = $("copyFallback"); ta.value = summaryText; ta.hidden = false; ta.select(); $("copyNote").textContent = "Select the text below and copy it."; };
+    try { navigator.clipboard.writeText(summaryText).then(() => { $("copyNote").textContent = "Copied. Paste it into the team group."; }, fb); } catch (e) { fb(); }
+  });
+  setInterval(setStatus, 30000);
+
+  current = windowFor(t);
+  (window.claude && window.claude.use ? window.claude.use("mcp") : Promise.resolve(null)).then(ns => {
+    mcp = ns;
+    if (!mcp) { notice("bad", "Live data isn't available in this view.", " Open this page on claude.ai while signed in, with the Salesforce connector added to your account."); $("statusText").textContent = "Not connected"; return; }
+    load(false);
+  });
+})();
+</script>

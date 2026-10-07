@@ -124,6 +124,7 @@ textarea#copyFallback { width: 100%; min-height: 140px; font: 12px var(--mono); 
         <input type="date" id="reportDate">
       </label>
       <button class="btn-ghost" id="todayBtn" type="button">Today</button>
+      <button class="btn-gold" id="sfBtn" type="button" hidden>Sign in with Salesforce</button>
       <button class="btn-gold" id="refreshBtn" type="button">Refresh</button>
       <label class="upload" for="fileInput" title="Salesforce lead export (report*.xls)">Upload export
         <input type="file" id="fileInput" accept=".xls,.html,.htm">
@@ -172,6 +173,11 @@ textarea#copyFallback { width: 100%; min-height: 140px; font: 12px var(--mono); 
 (() => {
   const SERVER = "Salesforce";
   const TOOL = "soqlQuery";
+  // Direct Salesforce sign-in, used when the page is hosted outside claude.ai.
+  // SF_CLIENT_ID is the Consumer Key of the "TAT Analysis Live" connected app (not a secret).
+  const SF_DOMAIN = "https://alcoverealty.my.salesforce.com";
+  const SF_CLIENT_ID = "";
+  const SF_API = "v62.0";
   const IST = 330 * 60000;
   const $ = id => document.getElementById(id);
 
@@ -444,11 +450,107 @@ textarea#copyFallback { width: 100%; min-height: 140px; font: 12px var(--mono); 
     setStatus();
   }
 
+  // ---------- direct Salesforce (OAuth 2.0 web server flow with PKCE) ----------
+  const ss = {
+    get: k => { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
+    set: (k, v) => { try { sessionStorage.setItem(k, v); } catch (e) {} },
+    del: k => { try { sessionStorage.removeItem(k); } catch (e) {} }
+  };
+  let sf = null; try { sf = JSON.parse(ss.get("tat_sf") || "null"); } catch (e) {}
+  let sfTimer = null, sfBusy = false;
+  const redirectUri = () => location.origin + location.pathname.replace(/index.html$/, "");
+  const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+  async function sfSignIn() {
+    if (!SF_CLIENT_ID) { notice("bad", "Salesforce sign-in isn't set up yet.", " Your Salesforce admin needs to create the connected app and send its Consumer Key; see the README in the GitHub repo."); return; }
+    const verifier = b64url(crypto.getRandomValues(new Uint8Array(48)));
+    const challenge = b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
+    const state = b64url(crypto.getRandomValues(new Uint8Array(16)));
+    ss.set("tat_pkce", JSON.stringify({ verifier, state }));
+    const q = new URLSearchParams({ response_type: "code", client_id: SF_CLIENT_ID, redirect_uri: redirectUri(),
+      code_challenge: challenge, code_challenge_method: "S256", state, scope: "api" });
+    location.assign(`${SF_DOMAIN}/services/oauth2/authorize?${q}`);
+  }
+  function sfSignOut() {
+    ss.del("tat_sf"); sf = null; clearInterval(sfTimer); clearData();
+    notice("", "Signed out of Salesforce.", " Sign in again to see live numbers, or upload an export.");
+    $("statusText").textContent = "Signed out"; updateButtons();
+  }
+  async function sfFinishSignIn() {
+    const p = new URLSearchParams(location.search);
+    if (!p.has("code") && !p.has("error")) return;
+    history.replaceState(null, "", redirectUri());
+    if (p.has("error")) { notice("bad", "Salesforce sign-in was cancelled or refused.", " " + (p.get("error_description") || p.get("error"))); return; }
+    let saved = null; try { saved = JSON.parse(ss.get("tat_pkce") || "null"); } catch (e) {}
+    ss.del("tat_pkce");
+    if (!saved || saved.state !== p.get("state")) { notice("bad", "Salesforce sign-in didn't complete.", " Press Sign in with Salesforce to try again."); return; }
+    try {
+      const r = await fetch(`${SF_DOMAIN}/services/oauth2/token`, { method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ grant_type: "authorization_code", code: p.get("code"), client_id: SF_CLIENT_ID,
+          redirect_uri: redirectUri(), code_verifier: saved.verifier }) });
+      const j = await r.json();
+      if (!r.ok || !j.access_token) throw { sf: true, message: j.error_description || j.error || ("HTTP " + r.status) };
+      sf = { token: j.access_token, instance: j.instance_url || SF_DOMAIN };
+      ss.set("tat_sf", JSON.stringify(sf));
+    } catch (err) {
+      if (err && err.sf) notice("bad", "Salesforce refused the sign-in.", " " + err.message);
+      else notice("bad", "This site can't reach Salesforce yet.", ` Salesforce blocked the request from ${location.origin}. Your admin needs to turn on CORS for OAuth endpoints and add this site to the CORS allowlist (see the README).`);
+    }
+  }
+  async function sfQuery(q) {
+    let url = `${sf.instance}/services/data/${SF_API}/query?q=${encodeURIComponent(q)}`, all = [];
+    while (url) {
+      const r = await fetch(url, { headers: { Authorization: "Bearer " + sf.token, Accept: "application/json" } });
+      if (r.status === 401) throw { code: "sf_expired" };
+      const j = await r.json().catch(() => null);
+      if (!r.ok) throw { code: "tool_error", message: (Array.isArray(j) && j[0] && j[0].message) || ("HTTP " + r.status) };
+      all = all.concat(j.records || []);
+      url = j.nextRecordsUrl ? sf.instance + j.nextRecordsUrl : null;
+    }
+    return all;
+  }
+  async function sfLoad() {
+    if (!sf || sfBusy || fileLeads) return;
+    sfBusy = true;
+    const w = current;
+    try {
+      const recs = await sfQuery(soql(w));
+      if (w !== current || fileLeads) return; // date changed while loading
+      notice(null);
+      lastRecords = fromSalesforce(recs); lastStoredAt = Date.now();
+      render(lastRecords); setStatus();
+    } catch (err) {
+      if (err && err.code === "sf_expired") {
+        ss.del("tat_sf"); sf = null; clearInterval(sfTimer); updateButtons();
+        notice("", "Your Salesforce session has ended.", " Press Sign in with Salesforce to continue.");
+        $("statusText").textContent = lastRecords ? "Showing last numbers received" : "Signed out";
+        $("dot").className = "dot";
+      } else if (err && err.code) handleError(err);
+      else notice("bad", "This site can't reach Salesforce.", ` Check your connection. If it keeps happening, your admin needs to add ${location.origin} to the Salesforce CORS allowlist.`);
+    } finally { sfBusy = false; }
+  }
+  function updateButtons() {
+    const b = $("sfBtn");
+    b.hidden = !!mcp;
+    b.textContent = sf ? "Sign out" : "Sign in with Salesforce";
+    b.className = sf ? "btn-ghost" : "btn-gold";
+    $("refreshBtn").hidden = !(mcp || sf || fileLeads);
+    $("refreshBtn").textContent = fileLeads && (mcp || sf) ? "Back to live" : "Refresh";
+  }
+
   let fileLeads = null, fileName = "";
   function load(force) {
     const ymd = $("reportDate").value || todayIST();
     current = windowFor(ymd);
+    clearInterval(sfTimer);
     if (fileLeads) { notice(null); render(fileLeads); setStatus(); return; }
+    if (!mcp && sf) {
+      $("statusText").textContent = "Loading from Salesforce…";
+      sfLoad();
+      if (isLive()) sfTimer = setInterval(() => { if (!document.hidden) sfLoad(); }, 60000);
+      return;
+    }
     if (!mcp) return;
     if (unwatch) { unwatch(); unwatch = null; }
     const input = { q: soql(current) };
@@ -465,9 +567,10 @@ textarea#copyFallback { width: 100%; min-height: 140px; font: 12px var(--mono); 
   $("reportDate").addEventListener("change", () => load(false));
   $("todayBtn").addEventListener("click", () => { $("reportDate").value = todayIST(); load(false); });
   $("refreshBtn").addEventListener("click", () => {
-    if (fileLeads && mcp) { fileLeads = null; fileName = ""; $("refreshBtn").textContent = "Refresh"; }
+    if (fileLeads && (mcp || sf)) { fileLeads = null; fileName = ""; updateButtons(); }
     load(true);
   });
+  $("sfBtn").addEventListener("click", () => { sf ? sfSignOut() : sfSignIn(); });
   $("fileInput").addEventListener("change", async e => {
     const f = e.target.files && e.target.files[0]; e.target.value = "";
     if (!f) return;
@@ -479,7 +582,7 @@ textarea#copyFallback { width: 100%; min-height: 140px; font: 12px var(--mono); 
       const day = reportDayOf(latest);
       $("reportDate").max = day > todayIST() ? day : todayIST();
       $("reportDate").value = day;
-      if (mcp) $("refreshBtn").textContent = "Back to live";
+      updateButtons();
       load(false);
     } catch (err) {
       notice("bad", "Couldn't read that file.", " " + err.message);
@@ -490,16 +593,18 @@ textarea#copyFallback { width: 100%; min-height: 140px; font: 12px var(--mono); 
     const fb = () => { const ta = $("copyFallback"); ta.value = summaryText; ta.hidden = false; ta.select(); $("copyNote").textContent = "Select the text below and copy it."; };
     try { navigator.clipboard.writeText(summaryText).then(() => { $("copyNote").textContent = "Copied. Paste it into the team group."; }, fb); } catch (e) { fb(); }
   });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && sf && !mcp && isLive()) sfLoad(); });
   setInterval(setStatus, 30000);
 
   current = windowFor(t);
-  (window.claude && window.claude.use ? window.claude.use("mcp") : Promise.resolve(null)).then(ns => {
+  (window.claude && window.claude.use ? window.claude.use("mcp") : Promise.resolve(null)).then(async ns => {
     mcp = ns;
-    if (!mcp) {
-      if (fileLeads) return;
-      notice("", "Upload the Salesforce lead export to build the report.", " Use Upload export above with today's report*.xls. The file is read in your browser and never leaves it. For live numbers, open this page on claude.ai with the Salesforce connector added.");
-      $("statusText").textContent = "Waiting for a file";
-      $("refreshBtn").hidden = true;
+    if (!mcp) await sfFinishSignIn();
+    updateButtons();
+    if (fileLeads) return;
+    if (!mcp && !sf) {
+      if ($("notice").hidden) notice("", "Sign in with Salesforce to see live numbers.", " Use your normal Salesforce login. You can also press Upload export and pick the day's report*.xls; the file is read in your browser and never leaves it.");
+      $("statusText").textContent = "Not signed in";
       return;
     }
     load(false);

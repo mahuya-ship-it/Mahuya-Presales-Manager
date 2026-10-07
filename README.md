@@ -4,11 +4,19 @@ Tools and reports for the Alcove Realty presales team (New Kolkata: Sangam & Tri
 
 ## TAT Analysis Live
 
-[`tat-analysis/tat-live.html`](tat-analysis/tat-live.html) is the source for the live TAT (turnaround time) dashboard.
+The TAT (turnaround time) dashboard works in two ways:
 
-**Open the live version here:** https://claude.ai/artifact/SyuL3hKto2duBxK2MdvXid
+- **Live, on claude.ai:** https://claude.ai/artifact/SyuL3hKto2duBxK2MdvXid reads leads straight from Salesforce through each viewer's own claude.ai Salesforce connector and refreshes every minute until 6:30 PM.
+- **Standalone HTML:** [`tat-analysis/index.html`](tat-analysis/index.html) is a complete page that opens in any browser. Download it, open it, and press **Upload export** to load the Salesforce lead export (`report*.xls`). The file is read in your browser and never uploaded anywhere. The page sets the report date from the latest lead in the file, and you can pick another date.
 
-The page reads leads from Salesforce through each viewer's own claude.ai Salesforce connector. Opened anywhere else, such as from this repo or as a local file, it loads without data and says live data isn't available.
+The export must include the columns *Created Date(Considered for Report)*, *First Call Date Time*, *Lead Owner* and *Enquiry Type*. If any of them is missing, the page names the missing columns and asks for a re-export.
+
+### Files
+
+| File | What it is |
+|---|---|
+| `tat-analysis/tat-live.html` | Source. This is what gets published to claude.ai, which adds the page skeleton itself. |
+| `tat-analysis/index.html` | Standalone build of the same page, with a full `<html>`/`<head>`. It's generated from `tat-live.html`, so edit the source and rebuild this one rather than editing it directly. |
 
 ### What it measures
 
@@ -32,6 +40,6 @@ Presales should make the first call on a fresh enquiry within **5 minutes** duri
 
 ### Updating the live page
 
-Edit `tat-analysis/tat-live.html`, then republish it to the same artifact URL from Claude Code.
+Edit `tat-analysis/tat-live.html`, rebuild `index.html` from it, then republish the source to the same artifact URL from Claude Code.
 
 This repo is public, so never commit exported lead data (report*.xls, Excel workbooks, phone numbers or names of customers).
